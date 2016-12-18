@@ -11,8 +11,6 @@ extern crate futures;
 use futures::Future;
 
 use std::io;
-use std::rc::Rc;
-use std::sync::Arc;
 
 /// An asynchronous function from `Request` to a `Response`.
 ///
@@ -152,7 +150,33 @@ pub trait Service {
     type Future: Future<Item = Self::Response, Error = Self::Error>;
 
     /// Process the request and return the response asynchronously.
-    fn call(&mut self, req: Self::Request) -> Self::Future;
+    fn call(&mut self, req: Self::Request) -> AsyncService<Self::Future, Self::Request>;
+}
+
+/// The result of an asynchronous attempt to call a service.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum AsyncService<T, U> {
+    /// The `call` attempt succeeded, so the service has accepted the request.
+    Ready(T),
+
+    /// The `call` attempt failed due to the service being at capacity. The request is returned and
+    /// the current `Task` will be notified again once the service has capacity.
+    NotReady(U),
+}
+
+impl<T, U> AsyncService<T, U> {
+    /// Returns whether this is `AsyncService::Ready`
+    pub fn is_ready(&self) -> bool {
+        match *self {
+            AsyncService::Ready(_) => true,
+            AsyncService::NotReady(_) => false,
+        }
+    }
+
+    /// Returns whether this is `AsyncService::NotReady`
+    pub fn is_not_ready(&self) -> bool {
+        !self.is_ready()
+    }
 }
 
 /// Creates new `Service` values.
@@ -193,7 +217,7 @@ impl<S: Service + ?Sized> Service for Box<S> {
     type Error = S::Error;
     type Future = S::Future;
 
-    fn call(&mut self, request: S::Request) -> S::Future {
+    fn call(&mut self, request: S::Request) -> AsyncService<S::Future, S::Request> {
         (**self).call(request)
     }
 }
