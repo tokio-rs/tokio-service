@@ -1,4 +1,5 @@
 use std::io;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use futures::Future;
@@ -181,5 +182,90 @@ impl<S, M> ServiceWrapper<S, M> where
             service_factory: service_factory,
             middleware_factory: middleware_factory,
         }
+    }
+}
+
+impl<F, S, R> NewMiddleware<S> for F where
+    F: Fn() -> io::Result<R>,
+    S: NewService,
+    R: Middleware<S::Instance>
+{
+    type Request = R::Request;
+    type Response = R::Response;
+    type Error = R::Error;
+    type Instance = R;
+
+    fn new_middleware(&self) -> io::Result<R> {
+        (*self)()
+    }
+}
+
+impl<M: ?Sized, S: ?Sized> NewMiddleware<S> for Arc<M> where
+    M: NewMiddleware<S>,
+    S: NewService,
+{
+    type Request = M::Request;
+    type Response = M::Response;
+    type Error = M::Error;
+    type Instance = M::Instance;
+
+    fn new_middleware(&self) -> io::Result<M::Instance> {
+        (**self).new_middleware()
+    }
+}
+
+impl<M: ?Sized, S: ?Sized> NewMiddleware<S> for Rc<M> where
+    M: NewMiddleware<S>,
+    S: NewService,
+{
+    type Request = M::Request;
+    type Response = M::Response;
+    type Error = M::Error;
+    type Instance = M::Instance;
+
+    fn new_middleware(&self) -> io::Result<M::Instance> {
+        (**self).new_middleware()
+    }
+}
+
+impl<M: ?Sized, S: ?Sized> Middleware<S> for Box<M> where
+    M: Middleware<S>,
+    S: Service,
+{
+    type Request = M::Request;
+    type Response = M::Response;
+    type Error = M::Error;
+    type Future = M::Future;
+
+    fn call(&self, req: Self::Request, service: &Arc<S>) -> Self::Future {
+        (**self).call(req, service)
+    }
+}
+
+impl<M: ?Sized, S: ?Sized> Middleware<S> for Rc<M> where
+    M: Middleware<S>,
+    S: Service,
+{
+    type Request = M::Request;
+    type Response = M::Response;
+    type Error = M::Error;
+    type Future = M::Future;
+
+    fn call(&self, req: Self::Request, service: &Arc<S>) -> Self::Future {
+        (**self).call(req, service)
+    }
+}
+
+impl<M: ?Sized, S: ?Sized> Middleware<S> for Arc<M> where
+    M: Middleware<S>,
+    S: Service,
+{
+    type Request = M::Request;
+    type Response = M::Response;
+    type Error = M::Error;
+    type Future = M::Future;
+
+    fn call(&self, req: Self::Request, service: &Arc<S>) -> Self::Future {
+        (**self).call(req, service)
     }
 }
