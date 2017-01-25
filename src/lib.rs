@@ -104,7 +104,7 @@ pub trait Service {
         M: Middleware<Self>,
         Self: Sized,
     {
-        WrappedService::new(Arc::new(self), middleware)
+        WrappedService::new(self, middleware)
     }
 }
 

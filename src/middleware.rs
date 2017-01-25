@@ -20,7 +20,6 @@ use {Service, NewService};
 /// use tokio::{Service, Middleware};
 /// use futures::Future;
 /// use std::time::Duration;
-/// use std::sync::Arc;
 ///
 /// // Not yet implemented, but soon :)
 /// use tokio::timer::{Timer, Expired};
@@ -47,8 +46,9 @@ use {Service, NewService};
 ///     type Response = T::Response;
 ///     type Error = T::Error;
 ///     type Future = Box<Future<Item = Self::Response, Error = Self::Error>>;
+///     type Accessor = S;
 ///
-///     fn call(&self, req: Self::Req, service: &Arc<T>) -> Self::Future {
+///     fn call(&self, req: Self::Req, service: &S) -> Self::Future {
 ///         let timeout = self.timer.timeout(self.delay)
 ///             .and_then(|timeout| Err(Self::Error::from(timeout)));
 ///
@@ -65,7 +65,7 @@ use {Service, NewService};
 /// The above timeout implementation is decoupled from the underlying protocol
 /// and is also decoupled from client or server concerns. In other words, the
 /// same timeout middleware could be used in either a client or a server.
-pub trait Middleware<S: Service + ?Sized> {
+pub trait Middleware<S: Service> {
     /// Requests handled by the middleware.
     type Request;
 
@@ -78,19 +78,25 @@ pub trait Middleware<S: Service + ?Sized> {
     /// The future response value.
     type Future: Future<Item = Self::Response, Error = Self::Error>;
 
+    /// The way in which the inner service will be accessed. Some middleware need
+    /// the inner service to be wrapped in an Arc; this allows them to specify that.
+    /// Unless you need different access, this should probably be the same type as
+    /// the `S` parameter to this trait.
+    type Accessor: From<S>;
+
     /// Process the request and return the response asynchronously.
     ///
     /// This method receives a reference to the interior service that it is wrapping.
-    fn call(&self, req: Self::Request, service: &Arc<S>) -> Self::Future;
+    fn call(&self, req: Self::Request, service: &Self::Accessor) -> Self::Future;
 
     /// Wrap a service with this middleware.
-    fn wrap(self, service: Arc<S>) -> WrappedService<S, Self> where Self: Sized {
+    fn wrap(self, service: S) -> WrappedService<S, Self> where Self: Sized {
         WrappedService::new(service, self)
     }
 }
 
 /// Create a new `Middleware` values.
-pub trait NewMiddleware<S: NewService + ?Sized> {
+pub trait NewMiddleware<S: NewService> {
     /// Requests handled by the middleware.
     type Request;
 
@@ -117,12 +123,12 @@ pub trait NewMiddleware<S: NewService + ?Sized> {
 
 /// A WrappedService is a Service wrapped in a Middleware. It can be
 /// constructed using the Service::wrap method.
-pub struct WrappedService<S: Service + ?Sized, M: Middleware<S>> {
-    service: Arc<S>,
+pub struct WrappedService<S: Service, M: Middleware<S>> {
+    service: M::Accessor,
     middleware: M,
 }
 
-impl<S: ?Sized, M> Service for WrappedService<S, M> where
+impl<S, M> Service for WrappedService<S, M> where
     S: Service,
     M: Middleware<S>,
 {
@@ -136,14 +142,14 @@ impl<S: ?Sized, M> Service for WrappedService<S, M> where
     }
 }
 
-impl<S: ?Sized, M> WrappedService<S, M> where
+impl<S, M> WrappedService<S, M> where
     S: Service,
     M: Middleware<S>,
 {
     /// Construct a new WrappedService from a Service and a Middleware.
-    pub fn new(service: Arc<S>, middleware: M) -> WrappedService<S, M> {
+    pub fn new(service: S, middleware: M) -> WrappedService<S, M> {
         WrappedService {
-            service: service,
+            service: service.into(),
             middleware: middleware,
         }
     }
@@ -168,7 +174,7 @@ impl<S, M> NewService for ServiceWrapper<S, M> where
     fn new_service(&self) -> io::Result<Self::Instance> {
         let service = self.service_factory.new_service()?;
         let middleware = self.middleware_factory.new_middleware()?;
-        Ok(WrappedService::new(Arc::new(service), middleware))
+        Ok(WrappedService::new(service, middleware))
     }
 }
 
@@ -200,7 +206,7 @@ impl<F, S, R> NewMiddleware<S> for F where
     }
 }
 
-impl<M: ?Sized, S: ?Sized> NewMiddleware<S> for Arc<M> where
+impl<M: ?Sized, S> NewMiddleware<S> for Arc<M> where
     M: NewMiddleware<S>,
     S: NewService,
 {
@@ -214,7 +220,7 @@ impl<M: ?Sized, S: ?Sized> NewMiddleware<S> for Arc<M> where
     }
 }
 
-impl<M: ?Sized, S: ?Sized> NewMiddleware<S> for Rc<M> where
+impl<M: ?Sized, S> NewMiddleware<S> for Rc<M> where
     M: NewMiddleware<S>,
     S: NewService,
 {
@@ -228,7 +234,7 @@ impl<M: ?Sized, S: ?Sized> NewMiddleware<S> for Rc<M> where
     }
 }
 
-impl<M: ?Sized, S: ?Sized> Middleware<S> for Box<M> where
+impl<M: ?Sized, S> Middleware<S> for Box<M> where
     M: Middleware<S>,
     S: Service,
 {
@@ -236,13 +242,14 @@ impl<M: ?Sized, S: ?Sized> Middleware<S> for Box<M> where
     type Response = M::Response;
     type Error = M::Error;
     type Future = M::Future;
+    type Accessor = M::Accessor;
 
-    fn call(&self, req: Self::Request, service: &Arc<S>) -> Self::Future {
+    fn call(&self, req: Self::Request, service: &Self::Accessor) -> Self::Future {
         (**self).call(req, service)
     }
 }
 
-impl<M: ?Sized, S: ?Sized> Middleware<S> for Rc<M> where
+impl<M: ?Sized, S> Middleware<S> for Rc<M> where
     M: Middleware<S>,
     S: Service,
 {
@@ -250,13 +257,14 @@ impl<M: ?Sized, S: ?Sized> Middleware<S> for Rc<M> where
     type Response = M::Response;
     type Error = M::Error;
     type Future = M::Future;
+    type Accessor = M::Accessor;
 
-    fn call(&self, req: Self::Request, service: &Arc<S>) -> Self::Future {
+    fn call(&self, req: Self::Request, service: &Self::Accessor) -> Self::Future {
         (**self).call(req, service)
     }
 }
 
-impl<M: ?Sized, S: ?Sized> Middleware<S> for Arc<M> where
+impl<M: ?Sized, S> Middleware<S> for Arc<M> where
     M: Middleware<S>,
     S: Service,
 {
@@ -264,8 +272,9 @@ impl<M: ?Sized, S: ?Sized> Middleware<S> for Arc<M> where
     type Response = M::Response;
     type Error = M::Error;
     type Future = M::Future;
+    type Accessor = M::Accessor;
 
-    fn call(&self, req: Self::Request, service: &Arc<S>) -> Self::Future {
+    fn call(&self, req: Self::Request, service: &Self::Accessor) -> Self::Future {
         (**self).call(req, service)
     }
 }
