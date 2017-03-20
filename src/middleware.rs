@@ -115,20 +115,20 @@ pub trait Middleware<S: Service> {
 
 /// Two middleware, chained together. This type is produced by the
 /// `chain` method on the Middleware trait.
-pub struct MiddlewareChain<S, InnerM, OuterM> where
-    S: Service,
-    InnerM: Middleware<S>,
-    OuterM: Middleware<InnerM::WrappedService>,
+pub struct MiddlewareChain<S, InnerM, OuterM>
+    where S: Service,
+          InnerM: Middleware<S>,
+          OuterM: Middleware<InnerM::WrappedService>,
 {
     inner_middleware: InnerM,
     outer_middleware: OuterM,
     _marker: PhantomData<S>,
 }
 
-impl<S, InnerM, OuterM> Middleware<S> for MiddlewareChain<S, InnerM, OuterM> where
-    S: Service,
-    InnerM: Middleware<S>,
-    OuterM: Middleware<InnerM::WrappedService>,
+impl<S, InnerM, OuterM> Middleware<S> for MiddlewareChain<S, InnerM, OuterM>
+    where S: Service,
+          InnerM: Middleware<S>,
+          OuterM: Middleware<InnerM::WrappedService>,
 {
     type WrappedService = OuterM::WrappedService;
 
