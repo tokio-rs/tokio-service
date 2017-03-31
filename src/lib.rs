@@ -19,7 +19,7 @@ use std::sync::Arc;
 mod middleware;
 pub mod stream;
 
-pub use self::middleware::{Middleware, MiddlewareChain};
+pub use self::middleware::*;
 
 /// An asynchronous function from `Request` to a `Response`.
 ///
