@@ -1,3 +1,4 @@
+use std::io;
 use std::marker::PhantomData;
 
 use Service;
@@ -135,4 +136,10 @@ impl<S, InnerM, OuterM> Middleware<S> for MiddlewareChain<S, InnerM, OuterM>
     fn wrap(self, service: S) -> Self::WrappedService {
         service.wrap(self.inner_middleware).wrap(self.outer_middleware)
     }
+}
+
+pub trait NewMiddleware<S: Service> {
+    type Instance: Middleware<S>;
+
+    fn new_middleware(&self) -> io::Result<Self::Instance>;
 }

@@ -113,3 +113,13 @@ impl<S, R, M> StreamReduce<S> for StreamReduceMiddlewareChain<S, R, M>
         service.reduce(self.reducer).wrap(self.middleware)
     }
 }
+
+pub trait NewStreamMiddleware<S: StreamService> {
+    type Instance: StreamMiddleware<S>;
+    fn new_middleware(&self) -> Self::Instance;
+}
+
+pub trait NewStreamReduce<S: StreamService> {
+    type Instance: StreamReduce<S>;
+    fn new_reducer(&self) -> Self::Instance;
+}
