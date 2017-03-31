@@ -1,3 +1,4 @@
+use std::io;
 use std::marker::PhantomData;
 
 use {Middleware, Service};
@@ -116,10 +117,10 @@ impl<S, R, M> StreamReduce<S> for StreamReduceMiddlewareChain<S, R, M>
 
 pub trait NewStreamMiddleware<S: StreamService> {
     type Instance: StreamMiddleware<S>;
-    fn new_middleware(&self) -> Self::Instance;
+    fn new_middleware(&self) -> io::Result<Self::Instance>;
 }
 
 pub trait NewStreamReduce<S: StreamService> {
     type Instance: StreamReduce<S>;
-    fn new_reducer(&self) -> Self::Instance;
+    fn new_reducer(&self) -> io::Result<Self::Instance>;
 }
