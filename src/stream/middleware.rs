@@ -1,8 +1,7 @@
 use std::io;
 use std::marker::PhantomData;
 
-use {Middleware, Service};
-use stream::StreamService;
+use stream::{StreamService, NewStreamService, StreamReduce, NewStreamReduce};
 
 pub trait StreamMiddleware<S: StreamService> {
     type WrappedService: StreamService;
@@ -54,23 +53,6 @@ impl<S, InnerM, OuterM> StreamMiddleware<S> for StreamMiddlewareChain<S, InnerM,
     }
 }
 
-pub trait StreamReduce<S: StreamService> {
-    type ReducedService: Service;
-
-    fn reduce(self, service: S) -> Self::ReducedService;
-
-    fn chain<M>(self, middleware: M) -> StreamReduceMiddlewareChain<S, Self, M>
-        where M: Middleware<Self::ReducedService>,
-              Self: Sized,
-    {
-        StreamReduceMiddlewareChain {
-            reducer: self,
-            middleware: middleware,
-            _marker: PhantomData,
-        }
-    }
-}
-
 pub struct StreamMiddlewareReduceChain<S, M, R>
     where S: StreamService,
           M: StreamMiddleware<S>,
@@ -93,34 +75,108 @@ impl<S, M, R> StreamReduce<S> for StreamMiddlewareReduceChain<S, M, R>
     }
 }
 
-pub struct StreamReduceMiddlewareChain<S, R, M>
-    where S: StreamService,
-          R: StreamReduce<S>,
-          M: Middleware<R::ReducedService>,
-{
-    reducer: R,
-    middleware: M,
-    _marker: PhantomData<S>,
-}
 
-impl<S, R, M> StreamReduce<S> for StreamReduceMiddlewareChain<S, R, M>
-    where S: StreamService,
-          R: StreamReduce<S>,
-          M: Middleware<R::ReducedService>,
-{
-    type ReducedService = M::WrappedService;
+pub trait NewStreamMiddleware<S: StreamService> {
+    type WrappedService: StreamService;
+    type Instance: StreamMiddleware<S, WrappedService = Self::WrappedService>;
 
-    fn reduce(self, service: S) -> Self::ReducedService {
-        service.reduce(self.reducer).wrap(self.middleware)
+    fn new_middleware(&self) -> io::Result<Self::Instance>;
+
+    fn wrap<N>(self, new_service: N) -> NewStreamServiceWrapper<Self, N>
+        where N: NewStreamService<Instance = S, Request = S::Request, Response = S::Response, Error = S::Error>,
+              Self: Sized,
+    {
+        NewStreamServiceWrapper {
+            service: new_service,
+            middleware: self,
+        }
+    }
+
+    fn chain<M>(self, new_middleware: M) -> NewStreamMiddlewareChain<S, Self, M>
+        where M: NewStreamMiddleware<Self::WrappedService>,
+              Self: Sized,
+    {
+        NewStreamMiddlewareChain {
+            inner_middleware: self,
+            outer_middleware: new_middleware,
+            _marker: PhantomData,
+        }
+    }
+
+    fn reduce<R>(self, new_reducer: R) -> NewStreamMiddlewareReduceChain<S, Self, R>
+        where R: NewStreamReduce<Self::WrappedService>,
+              Self: Sized,
+    {
+        NewStreamMiddlewareReduceChain {
+            reducer: new_reducer,
+            middleware: self,
+            _marker: PhantomData,
+        }
     }
 }
 
-pub trait NewStreamMiddleware<S: StreamService> {
-    type Instance: StreamMiddleware<S>;
-    fn new_middleware(&self) -> io::Result<Self::Instance>;
+pub struct NewStreamServiceWrapper<M: NewStreamMiddleware<S::Instance>, S: NewStreamService> {
+    service: S,
+    middleware: M,
 }
 
-pub trait NewStreamReduce<S: StreamService> {
-    type Instance: StreamReduce<S>;
-    fn new_reducer(&self) -> io::Result<Self::Instance>;
+impl<M, S, W> NewStreamService for NewStreamServiceWrapper<M, S>
+    where S: NewStreamService,
+          M: NewStreamMiddleware<S::Instance, WrappedService = W>,
+          W: StreamService,
+{
+    type Request = W::Request;
+    type Response = W::Response;
+    type Error = W::Error;
+    type Instance = W;
+
+    fn new_service(&self) -> io::Result<Self::Instance> {
+        Ok(self.service.new_service()?.wrap(self.middleware.new_middleware()?))
+    }
+}
+
+pub struct NewStreamMiddlewareChain<S, InnerM, OuterM>
+    where S: StreamService,
+          InnerM: NewStreamMiddleware<S>,
+          OuterM: NewStreamMiddleware<InnerM::WrappedService>,
+{
+    inner_middleware: InnerM,
+    outer_middleware: OuterM,
+    _marker: PhantomData<S>,
+}
+
+impl<S, InnerM, OuterM> NewStreamMiddleware<S> for NewStreamMiddlewareChain<S, InnerM, OuterM>
+    where S: StreamService,
+          InnerM: NewStreamMiddleware<S>,
+          OuterM: NewStreamMiddleware<InnerM::WrappedService>,
+{
+    type Instance = StreamMiddlewareChain<S, InnerM::Instance, OuterM::Instance>;
+    type WrappedService = OuterM::WrappedService;
+
+    fn new_middleware(&self) -> io::Result<Self::Instance> {
+        Ok(self.inner_middleware.new_middleware()?.chain(self.outer_middleware.new_middleware()?))
+    }
+}
+
+pub struct NewStreamMiddlewareReduceChain<S, M, R>
+    where S: StreamService,
+          M: NewStreamMiddleware<S>,
+          R: NewStreamReduce<M::WrappedService>,
+{
+    middleware: M,
+    reducer: R,
+    _marker: PhantomData<S>,
+}
+
+impl<S, M, R> NewStreamReduce<S> for NewStreamMiddlewareReduceChain<S, M, R>
+    where S: StreamService,
+          M: NewStreamMiddleware<S>,
+          R: NewStreamReduce<M::WrappedService>,
+{
+    type ReducedService = R::ReducedService;
+    type Instance = StreamMiddlewareReduceChain<S, M::Instance, R::Instance>;
+
+    fn new_reducer(&self) -> io::Result<Self::Instance> {
+        Ok(self.middleware.new_middleware()?.reduce(self.reducer.new_reducer()?))
+    }
 }

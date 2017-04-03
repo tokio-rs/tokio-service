@@ -1,6 +1,8 @@
 mod middleware;
+mod reduce;
 
 pub use self::middleware::*;
+pub use self::reduce::*;
 
 use std::io;
 use std::rc::Rc;
