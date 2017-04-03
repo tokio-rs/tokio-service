@@ -73,6 +73,20 @@ pub trait NewStreamService {
     type Instance: StreamService<Request = Self::Request, Response = Self::Response, Error = Self::Error>;
 
     fn new_service(&self) -> io::Result<Self::Instance>;
+
+    fn wrap<M>(self, new_middleware: M) -> NewStreamServiceWrapper<M, Self>
+        where M: NewStreamMiddleware<Self::Instance>,
+              Self: Sized,
+    {
+        new_middleware.wrap(self)
+    }
+
+    fn reduce<R>(self, new_reducer: R) -> NewStreamServiceReducer<R, Self>
+        where R: NewStreamReduce<Self::Instance>,
+              Self: Sized,
+    {
+        new_reducer.reduce(self)
+    }
 }
 
 impl<F, R> NewStreamService for F
