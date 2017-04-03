@@ -1,5 +1,4 @@
 use std::io;
-use std::marker::PhantomData;
 
 use {Service, NewService};
 
@@ -102,31 +101,25 @@ pub trait Middleware<S: Service> {
     ///
     /// This allows you to build middleware chains before knowing
     /// exactly which service that chain applies to.
-    fn chain<M>(self, middleware: M) -> MiddlewareChain<S, Self, M> where
+    fn chain<M>(self, middleware: M) -> MiddlewareChain<Self, M> where
         M: Middleware<Self::WrappedService>,
         Self: Sized,
     {
         MiddlewareChain {
             inner_middleware: self,
             outer_middleware: middleware,
-            _marker: PhantomData,
         }
     }
 }
 
 /// Two middleware, chained together. This type is produced by the
 /// `chain` method on the Middleware trait.
-pub struct MiddlewareChain<S, InnerM, OuterM>
-    where S: Service,
-          InnerM: Middleware<S>,
-          OuterM: Middleware<InnerM::WrappedService>,
-{
+pub struct MiddlewareChain<InnerM, OuterM> {
     inner_middleware: InnerM,
     outer_middleware: OuterM,
-    _marker: PhantomData<S>,
 }
 
-impl<S, InnerM, OuterM> Middleware<S> for MiddlewareChain<S, InnerM, OuterM>
+impl<S, InnerM, OuterM> Middleware<S> for MiddlewareChain<InnerM, OuterM>
     where S: Service,
           InnerM: Middleware<S>,
           OuterM: Middleware<InnerM::WrappedService>,
@@ -154,14 +147,13 @@ pub trait NewMiddleware<S: Service> {
         }
     }
 
-    fn chain<M>(self, new_middleware: M) -> NewMiddlewareChain<S, Self, M>
+    fn chain<M>(self, new_middleware: M) -> NewMiddlewareChain<Self, M>
         where M: NewMiddleware<Self::WrappedService>,
               Self: Sized,
     {
         NewMiddlewareChain {
             inner_middleware: self,
             outer_middleware: new_middleware,
-            _marker: PhantomData,
         }
     }
 }
@@ -186,22 +178,17 @@ impl<M, S, W> NewService for NewServiceWrapper<M, S>
     }
 }
 
-pub struct NewMiddlewareChain<S, InnerM, OuterM>
-    where S: Service,
-          InnerM: NewMiddleware<S>,
-          OuterM: NewMiddleware<InnerM::WrappedService>,
-{
+pub struct NewMiddlewareChain<InnerM, OuterM> {
     inner_middleware: InnerM,
     outer_middleware: OuterM,
-    _marker: PhantomData<S>,
 }
 
-impl<S, InnerM, OuterM> NewMiddleware<S> for NewMiddlewareChain<S, InnerM, OuterM>
+impl<S, InnerM, OuterM> NewMiddleware<S> for NewMiddlewareChain<InnerM, OuterM>
     where S: Service,
           InnerM: NewMiddleware<S>,
           OuterM: NewMiddleware<InnerM::WrappedService>,
 {
-    type Instance = MiddlewareChain<S, InnerM::Instance, OuterM::Instance>;
+    type Instance = MiddlewareChain<InnerM::Instance, OuterM::Instance>;
     type WrappedService = OuterM::WrappedService;
 
     fn new_middleware(&self) -> io::Result<Self::Instance> {
