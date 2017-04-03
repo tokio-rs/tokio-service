@@ -102,9 +102,9 @@ pub trait Service {
     fn call(&self, req: Self::Request) -> Self::Future;
 
     /// Wrap this Service in a Middleware component.
-    fn wrap<M>(self, middleware: M) -> M::WrappedService where
-        M: Middleware<Self>,
-        Self: Sized,
+    fn wrap<M>(self, middleware: M) -> M::WrappedService
+        where M: Middleware<Self>,
+              Self: Sized,
     {
         middleware.wrap(self)
     }
@@ -126,6 +126,13 @@ pub trait NewService {
 
     /// Create and return a new service value.
     fn new_service(&self) -> io::Result<Self::Instance>;
+
+    fn wrap<M>(self, new_middleware: M) -> NewServiceWrapper<M, Self>
+        where M: NewMiddleware<Self::Instance>,
+              Self: Sized,
+    {
+        new_middleware.wrap(self)
+    }
 }
 
 impl<F, R> NewService for F
