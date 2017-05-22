@@ -16,6 +16,10 @@ use std::io;
 use std::rc::Rc;
 use std::sync::Arc;
 
+mod middleware;
+
+pub use self::middleware::{Middleware, MiddlewareChain};
+
 /// An asynchronous function from `Request` to a `Response`.
 ///
 /// The `Service` trait is a simplified interface making it easy to write
@@ -79,66 +83,6 @@ use std::sync::Arc;
 /// println!("Redis response: {:?}", await(resp));
 /// ```
 ///
-/// # Middleware
-///
-/// More often than not, all the pieces needed for writing robust, scalable
-/// network applications are the same no matter the underlying protocol. By
-/// unifying the API for both clients and servers in a protocol agnostic way,
-/// it is possible to write middleware that provide these pieces in a
-/// reusable way.
-///
-/// For example, take timeouts as an example:
-///
-/// ```rust,ignore
-/// use tokio::Service;
-/// use futures::Future;
-/// use std::time::Duration;
-///
-/// // Not yet implemented, but soon :)
-/// use tokio::timer::{Timer, Expired};
-///
-/// pub struct Timeout<T> {
-///     upstream: T,
-///     delay: Duration,
-///     timer: Timer,
-/// }
-///
-/// impl<T> Timeout<T> {
-///     pub fn new(upstream: T, delay: Duration) -> Timeout<T> {
-///         Timeout {
-///             upstream: upstream,
-///             delay: delay,
-///             timer: Timer::default(),
-///         }
-///     }
-/// }
-///
-/// impl<T> Service for Timeout<T>
-///     where T: Service,
-///           T::Error: From<Expired>,
-/// {
-///     type Request = T::Request;
-///     type Response = T::Response;
-///     type Error = T::Error;
-///     type Future = Box<Future<Item = Self::Response, Error = Self::Error>>;
-///
-///     fn call(&self, req: Self::Req) -> Self::Future {
-///         let timeout = self.timer.timeout(self.delay)
-///             .and_then(|timeout| Err(Self::Error::from(timeout)));
-///
-///         self.upstream.call(req)
-///             .select(timeout)
-///             .map(|(v, _)| v)
-///             .map_err(|(e, _)| e)
-///             .boxed()
-///     }
-/// }
-///
-/// ```
-///
-/// The above timeout implementation is decoupled from the underlying protocol
-/// and is also decoupled from client or server concerns. In other words, the
-/// same timeout middleware could be used in either a client or a server.
 pub trait Service {
 
     /// Requests handled by the service.
@@ -155,6 +99,14 @@ pub trait Service {
 
     /// Process the request and return the response asynchronously.
     fn call(&self, req: Self::Request) -> Self::Future;
+
+    /// Wrap this Service in a Middleware component.
+    fn wrap<M>(self, middleware: M) -> M::WrappedService where
+        M: Middleware<Self>,
+        Self: Sized,
+    {
+        middleware.wrap(self)
+    }
 }
 
 /// Creates new `Service` values.
