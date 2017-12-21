@@ -55,7 +55,7 @@ use std::sync::Arc;
 ///             .with_body(b"hello world\n");
 ///
 ///         // Return the response as an immediate future
-///         futures::finished(resp).boxed()
+///         Box::new(futures::finished(resp))
 ///     }
 /// }
 /// ```
@@ -126,11 +126,10 @@ use std::sync::Arc;
 ///         let timeout = self.timer.timeout(self.delay)
 ///             .and_then(|timeout| Err(Self::Error::from(timeout)));
 ///
-///         self.upstream.call(req)
+///         Box::new(self.upstream.call(req)
 ///             .select(timeout)
 ///             .map(|(v, _)| v)
-///             .map_err(|(e, _)| e)
-///             .boxed()
+///             .map_err(|(e, _)| e))
 ///     }
 /// }
 ///
