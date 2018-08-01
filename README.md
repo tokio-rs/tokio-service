@@ -1,3 +1,7 @@
+# This crate is deprecated!
+
+This crate is deprecated in favor of [tower](https://github.com/tower-rs/tower).
+
 # tokio-service
 
 Definition of the core `Service` trait in Tokio
